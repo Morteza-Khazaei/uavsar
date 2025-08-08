@@ -42,12 +42,13 @@ class UavsarDownloader:
             self.session = asf_search.ASFSession()
 
         if work_dir:
-            self.work_dir = Path(work_dir).resolve()
+            self.base_work_dir = Path(work_dir).resolve()
         else:
-            self.work_dir = Path.home() / 'uavsar_data'
+            self.base_work_dir = Path.home() / 'uavsar_data'
 
-        self.work_dir.mkdir(parents=True, exist_ok=True)
-        logging.info(f"Working directory set to: {self.work_dir}")
+        self.base_work_dir.mkdir(parents=True, exist_ok=True)
+        self.work_dir = self.base_work_dir # Default work_dir is the base
+        logging.info(f"Base working directory set to: {self.base_work_dir}")
 
         self.campaign = None
         self.search_results = None
@@ -91,8 +92,13 @@ class UavsarDownloader:
             return []
 
     def set_campaign(self, campaign: str):
-        """Sets the campaign for the downloader."""
+        """Sets the campaign for the downloader and updates the working directory."""
         self.campaign = campaign
+        # Sanitize the campaign name to make it a valid directory name
+        sanitized_campaign_name = re.sub(r'[^\w\s-]', '', campaign).strip().replace(' ', '_')
+        self.work_dir = self.base_work_dir / sanitized_campaign_name
+        self.work_dir.mkdir(exist_ok=True)
+        logging.info(f"Campaign set. Files will be stored in: {self.work_dir}")
 
     def get_campaign_date_range(self):
         """

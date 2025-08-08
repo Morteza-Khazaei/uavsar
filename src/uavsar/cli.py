@@ -120,7 +120,8 @@ def search(
 
         selected_indices = questionary.checkbox(
             "Select products to download (space to select, enter to confirm):",
-            choices=product_choices
+            choices=product_choices,
+            validate=lambda result: True if len(result) > 0 else "Please select at least one product."
         ).ask()
 
         if not selected_indices:
@@ -175,23 +176,39 @@ def convert(
             dirs_to_process.append(product_dir)
             print(f"--- Converting specified directory: {product_dir} ---")
         else:
-            print(f"--- Scanning for products in default directory: {processor.work_dir} ---")
-            potential_dirs = [d for d in processor.work_dir.iterdir() if d.is_dir() and any(d.glob('*.ann'))]
+            # When no specific directory is given, guide the user through the campaign structure.
+            print(f"--- Scanning for campaigns in base directory: {processor.work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.work_dir.iterdir() if d.is_dir()])
+
+            if not campaign_dirs:
+                logging.warning(f"No campaign directories found in {processor.work_dir}. Exiting.")
+                raise typer.Exit()
+
+            selected_campaign_name = questionary.select(
+                "Select a campaign to process:",
+                choices=[d.name for d in campaign_dirs]
+            ).ask()
+            if not selected_campaign_name: raise typer.Exit()
+
+            campaign_path = processor.work_dir / selected_campaign_name
+            print(f"--- Scanning for products in: {campaign_path.name} ---")
+            potential_dirs = sorted([d for d in campaign_path.iterdir() if d.is_dir() and any(d.glob('*.ann'))])
 
             if not potential_dirs:
-                logging.warning(f"No product directories found in {processor.work_dir}. Exiting.")
+                logging.warning(f"No convertible product directories found in {campaign_path.name}. Exiting.")
                 raise typer.Exit()
 
             selected_dirs_str = questionary.checkbox(
-                "Select product directories to convert (space to select, enter to confirm):",
-                choices=[d.name for d in sorted(potential_dirs)]
+                "Select product directories to convert:",
+                choices=[d.name for d in potential_dirs],
+                validate=lambda result: True if len(result) > 0 else "Please select at least one directory."
             ).ask()
 
             if not selected_dirs_str:
                 logging.info("No directories selected. Exiting.")
                 raise typer.Exit()
 
-            dirs_to_process = [processor.work_dir / name for name in selected_dirs_str]
+            dirs_to_process = [campaign_path / name for name in selected_dirs_str]
 
         for p_dir in dirs_to_process:
             print(f"\n--- Processing: {p_dir.name} ---")
@@ -226,18 +243,32 @@ def stack(
             dirs_to_process.append(product_dir)
             print(f"--- Stacking bands for specified directory: {product_dir} ---")
         else:
-            print(f"--- Scanning for products in default directory: {processor.work_dir} ---")
-            potential_dirs = [d for d in processor.work_dir.iterdir() if d.is_dir() and any(d.glob('*.ann'))]
-            if not potential_dirs:
-                logging.warning(f"No product directories found in {processor.work_dir}. Exiting.")
+            print(f"--- Scanning for campaigns in base directory: {processor.work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.work_dir.iterdir() if d.is_dir()])
+            if not campaign_dirs:
+                logging.warning(f"No campaign directories found in {processor.work_dir}. Exiting.")
                 raise typer.Exit()
+            selected_campaign_name = questionary.select(
+                "Select a campaign to stack products from:",
+                choices=[d.name for d in campaign_dirs]
+            ).ask()
+            if not selected_campaign_name: raise typer.Exit()
+
+            campaign_path = processor.work_dir / selected_campaign_name
+            print(f"--- Scanning for products in: {campaign_path.name} ---")
+            potential_dirs = sorted([d for d in campaign_path.iterdir() if d.is_dir() and any(d.glob('*.ann'))])
+
+            if not potential_dirs:
+                logging.warning(f"No product directories with convertible files found in {campaign_path.name}. Exiting.")
+                raise typer.Exit()
+
             selected_dirs_str = questionary.checkbox(
                 "Select product directories to stack:",
-                choices=[d.name for d in sorted(potential_dirs)]
+                choices=[d.name for d in potential_dirs],
+                validate=lambda result: True if len(result) > 0 else "Please select at least one directory."
             ).ask()
-            if not selected_dirs_str:
-                raise typer.Exit()
-            dirs_to_process = [processor.work_dir / name for name in selected_dirs_str]
+            if not selected_dirs_str: raise typer.Exit()
+            dirs_to_process = [campaign_path / name for name in selected_dirs_str]
 
         for p_dir in dirs_to_process:
             print(f"\n--- Stacking: {p_dir.name} ---")
