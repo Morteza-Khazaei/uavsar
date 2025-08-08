@@ -24,7 +24,7 @@ Once you have a terminal open, follow these steps:
 
     First, you need to download the toolkit's code using Git.
     ```bash
-    git clone git@github.com:Morteza-Khazaei/uavsar.git
+    git clone https://github.com/Morteza-Khazaei/uavsar.git
     cd uavsar
     ```
 

@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uavsar-toolkit"
 version = "0.1.0"
+authors = [
+  { name="Morteza Khazaei", email="author@example.com" },
+]
 description = "A Python package to search, download, and process UAVSAR data from the Alaska Satellite Facility (ASF) data center."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,6 +15,8 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
+license = { file="LICENSE" }
+
 dependencies = [
     "numpy",
     "pandas",
@@ -22,6 +27,10 @@ dependencies = [
     "questionary",
     "asf-search>=6.0.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/Morteza-Khazaei/uavsar"
+"Bug Tracker" = "https://github.com/Morteza-Khazaei/uavsar/issues"
 
 [project.scripts]
 uavsar = "uavsar.cli:app"

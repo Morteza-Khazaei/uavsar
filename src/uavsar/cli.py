@@ -28,8 +28,6 @@ def search(
     )
 ):
     """Search for and download UAVSAR data from ASF."""
-    print("--- Welcome to the UAVSAR Toolkit ---")
-
     try:
         processor = UavsarDownloader(work_dir=work_dir)
 
