@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "uavsar-toolkit"
+version = "0.1.0"
+description = "A Python package to search, download, and process UAVSAR data from the Alaska Satellite Facility (ASF) data center."
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "pytz",
+    "rasterio",
+    "rich",
+    "typer[all]",
+    "questionary",
+    "asf-search>=6.0.0",
+]
+
+[project.scripts]
+uavsar = "uavsar.cli:app"
