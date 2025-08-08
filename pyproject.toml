@@ -34,3 +34,6 @@ dependencies = [
 
 [project.scripts]
 uavsar = "uavsar.cli:app"
+
+[project.optional-dependencies]
+test = ["pytest"]

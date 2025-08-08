@@ -178,6 +178,83 @@ def search(
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
 
 @app.command()
+def unzip(
+    product_dir: Path = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Path to a specific UAVSAR product directory to unzip files in. If not provided, will scan interactively.",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+    )
+):
+    """Unzips downloaded .zip files within a product directory."""
+    try:
+        processor = UavsarDownloader(skip_auth=True)
+
+        zip_files_to_process = []
+        if product_dir:
+            print(f"--- Unzipping files in specified directory: {product_dir} ---")
+            zip_files_to_process.extend(list(product_dir.glob('*.zip')))
+        else:
+            # Interactive selection
+            print(f"--- Scanning for campaigns in base directory: {processor.base_work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.base_work_dir.iterdir() if d.is_dir()])
+            if not campaign_dirs:
+                logging.warning(f"No campaign directories found in {processor.base_work_dir}. Exiting.")
+                raise typer.Exit()
+
+            selected_campaign_name = questionary.select(
+                "Select a campaign to unzip files from:",
+                choices=[d.name for d in campaign_dirs]
+            ).ask()
+            if not selected_campaign_name: raise typer.Exit()
+
+            campaign_path = processor.base_work_dir / selected_campaign_name
+            print(f"--- Scanning for .zip files in campaign: {campaign_path.name} ---")
+            
+            all_zip_files = sorted(list(campaign_path.rglob('*.zip')))
+
+            if not all_zip_files:
+                logging.warning(f"No .zip files found in campaign '{selected_campaign_name}'.")
+                # Check for already unzipped dirs to provide a better message
+                unzipped_dirs = sorted([
+                    d for d in campaign_path.iterdir()
+                    if d.is_dir() and any(d.glob('*.grd')) and not any(d.glob('*.zip'))
+                ])
+                if unzipped_dirs:
+                    logging.info("Tip: Some directories appear to be already unzipped. You can use 'uavsar convert' on them directly.")
+                raise typer.Exit(code=1)
+
+            zip_choices = [
+                {'name': str(p.relative_to(campaign_path)), 'value': p} 
+                for p in all_zip_files
+            ]
+
+            selected_zip_paths = questionary.checkbox(
+                "Select .zip files to unzip:",
+                choices=zip_choices,
+                validate=lambda result: True if len(result) > 0 else "Please select at least one file."
+            ).ask()
+            if not selected_zip_paths: raise typer.Exit()
+            
+            zip_files_to_process = selected_zip_paths
+
+        if not zip_files_to_process:
+            logging.info("No .zip files found to unzip.")
+        else:
+            processor.unzip_files(zip_files_to_process)
+
+        print("\n--- Unzipping complete. ---")
+    except (KeyboardInterrupt, typer.Exit):
+        logging.warning("\nOperation cancelled by user.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during unzipping: {e}", exc_info=True)
+
+@app.command()
 def convert(
     product_dir: Path = typer.Option(
         None,
@@ -293,80 +370,3 @@ def stack(
         logging.warning("\nOperation cancelled by user.")
     except Exception as e:
         logging.error(f"An unexpected error occurred during stacking: {e}", exc_info=True)
-
-@app.command()
-def unzip(
-    product_dir: Path = typer.Option(
-        None,
-        "--dir",
-        "-d",
-        help="Path to a specific UAVSAR product directory to unzip files in. If not provided, will scan interactively.",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        readable=True,
-        resolve_path=True,
-    )
-):
-    """Unzips downloaded .zip files within a product directory."""
-    try:
-        processor = UavsarDownloader(skip_auth=True)
-
-        zip_files_to_process = []
-        if product_dir:
-            print(f"--- Unzipping files in specified directory: {product_dir} ---")
-            zip_files_to_process.extend(list(product_dir.glob('*.zip')))
-        else:
-            # Interactive selection
-            print(f"--- Scanning for campaigns in base directory: {processor.base_work_dir} ---")
-            campaign_dirs = sorted([d for d in processor.base_work_dir.iterdir() if d.is_dir()])
-            if not campaign_dirs:
-                logging.warning(f"No campaign directories found in {processor.base_work_dir}. Exiting.")
-                raise typer.Exit()
-
-            selected_campaign_name = questionary.select(
-                "Select a campaign to unzip files from:",
-                choices=[d.name for d in campaign_dirs]
-            ).ask()
-            if not selected_campaign_name: raise typer.Exit()
-
-            campaign_path = processor.base_work_dir / selected_campaign_name
-            print(f"--- Scanning for .zip files in campaign: {campaign_path.name} ---")
-            
-            all_zip_files = sorted(list(campaign_path.rglob('*.zip')))
-
-            if not all_zip_files:
-                logging.warning(f"No .zip files found in campaign '{selected_campaign_name}'.")
-                # Check for already unzipped dirs to provide a better message
-                unzipped_dirs = sorted([
-                    d for d in campaign_path.iterdir()
-                    if d.is_dir() and any(d.glob('*.grd')) and not any(d.glob('*.zip'))
-                ])
-                if unzipped_dirs:
-                    logging.info("Tip: Some directories appear to be already unzipped. You can use 'uavsar convert' on them directly.")
-                raise typer.Exit(code=1)
-
-            zip_choices = [
-                {'name': str(p.relative_to(campaign_path)), 'value': p} 
-                for p in all_zip_files
-            ]
-
-            selected_zip_paths = questionary.checkbox(
-                "Select .zip files to unzip:",
-                choices=zip_choices,
-                validate=lambda result: True if len(result) > 0 else "Please select at least one file."
-            ).ask()
-            if not selected_zip_paths: raise typer.Exit()
-            
-            zip_files_to_process = selected_zip_paths
-
-        if not zip_files_to_process:
-            logging.info("No .zip files found to unzip.")
-        else:
-            processor.unzip_files(zip_files_to_process)
-
-        print("\n--- Unzipping complete. ---")
-    except (KeyboardInterrupt, typer.Exit):
-        logging.warning("\nOperation cancelled by user.")
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during unzipping: {e}", exc_info=True)

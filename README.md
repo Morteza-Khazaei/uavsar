@@ -91,7 +91,7 @@ uavsar convert
 
 After it's finished, you will find new `.tiff` files inside your product folder.
 
-### Step 3: Stack Bands into a Multi-Band Image with `stack`
+### Step 4: Stack Bands into a Multi-Band Image with `stack`
 
 This is the most creative step. You can combine several of the single-band GeoTIFFs you just created into one multi-band image. This is great for creating false-color RGB images.
 

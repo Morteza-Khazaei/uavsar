@@ -470,7 +470,9 @@ class UavsarDownloader:
             # --- GEOREFERENCING LOGIC ---
             # Attempt to find UTM projection info first
             utm_geo_prefix = None
-            for p in [search_key_prefix, f'{file_type}_pwr', file_type]:
+            # Expand fallback to include common geo-data sources
+            geo_fallback_keys = [search_key_prefix, 'grd_pwr', 'hgt', file_type]
+            for p in geo_fallback_keys:
                 if f'{p}.upper_left_easting' in ann_data:
                     utm_geo_prefix = p
                     break
@@ -490,7 +492,8 @@ class UavsarDownloader:
             else:
                 # Attempt to find EQA (lat/lon) projection info
                 eqa_geo_prefix = None
-                for p in [search_key_prefix, f'{file_type}_pwr', file_type]:
+                # Use the same expanded fallback for EQA
+                for p in geo_fallback_keys:
                     # EQA uses 'row_addr' with 'deg' units for lat
                     key = f'{p}.row_addr'
                     if key in ann_data and ann_data[key].get('units') == 'deg':
