@@ -161,12 +161,12 @@ class UavsarDownloader:
             self.search_results = asf_search.ASFSearchResults([])
             return self.search_results
 
-    def download_and_unzip_product(self, products_for_scene: list):
+    def download_product(self, products_for_scene: list):
         """
-        Downloads and unzips all selected files for a given scene.
+        Downloads all selected files for a given scene.
 
         Returns:
-            A tuple of (Path, str) for the product directory and base name, or (None, None) on failure.
+            A tuple of (Path, str) for the product directory and base name, or (None, None) on download failure.
         """
         if not products_for_scene:
             return None, None
@@ -177,31 +177,26 @@ class UavsarDownloader:
 
         # 1. Collect all URLs from the products selected by the user for this scene
         urls_to_download = {p.properties['url'] for p in products_for_scene}
-        
+
         # 2. Check which files already exist and don't need to be downloaded
-        unzipped_files_dir = self.work_dir / base_name
-        unzipped_files_dir.mkdir(exist_ok=True)
+        product_dir = self.work_dir / base_name
+        product_dir.mkdir(exist_ok=True)
         
         final_urls_to_download = []
-        files_for_unzipping = []
+        downloaded_files = []
         
         for url in urls_to_download:
             filename = url.split('/')[-1]
-            staging_path = self.work_dir / filename
-            
-            is_zip = filename.lower().endswith('.zip')
-            if not is_zip and (unzipped_files_dir / filename).exists():
-                logging.info(f"File {filename} already exists in product directory. Skipping.")
-                continue
+            # Download and stage inside the product-specific directory
+            staging_path = product_dir / filename
             
             if staging_path.exists():
-                logging.info(f"File {filename} already exists in working directory. Skipping download.")
-                files_for_unzipping.append(staging_path)
+                logging.info(f"Zip file {filename} already exists. Skipping download.")
+                downloaded_files.append(staging_path)
                 continue
                 
             final_urls_to_download.append(url)
 
-        # 3. Download and Unzip with Progress Bars
         with Progress(
             TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
             BarColumn(bar_width=None),
@@ -215,7 +210,8 @@ class UavsarDownloader:
                 logging.info(f"Downloading {len(final_urls_to_download)} file(s) for {base_name}...")
                 for url in final_urls_to_download:
                     filename = url.split('/')[-1]
-                    staging_path = self.work_dir / filename
+                    # Download directly into the product directory
+                    staging_path = product_dir / filename
                     task_id = progress.add_task("download", filename=filename, start=False)
                     try:
                         # Use the authenticated session to stream the download
@@ -231,37 +227,18 @@ class UavsarDownloader:
                                 f.write(chunk)
                                 progress.update(task_id, advance=len(chunk))
                         
-                        files_for_unzipping.append(staging_path)
+                        downloaded_files.append(staging_path)
                     except Exception as e:
                         logging.error(f"Failed to download {filename}: {e}")
                         progress.update(task_id, description=f"[bold red]Failed: {filename}[/bold red]")
                         if staging_path.exists():
                             staging_path.unlink(missing_ok=True)
-            
-            # Unzip downloaded files
-            for file_path in filter(lambda p: p.exists() and zipfile.is_zipfile(p), files_for_unzipping):
-                self._unzip_with_progress(file_path, unzipped_files_dir, progress)
 
-        if not files_for_unzipping:
-            logging.warning(f"No files were successfully downloaded or found for product {product_name}.")
+        if not downloaded_files:
+            logging.warning(f"No .zip files were downloaded or found for product {product_name}.")
             return None, None
 
-        # 4. Move any raw (non-zip) files
-        for file_path in files_for_unzipping:
-            if not file_path.exists():
-                logging.error(f"Downloaded file {file_path.name} not found. Download may have failed silently.")
-                continue
-                
-            if zipfile.is_zipfile(file_path):
-                with zipfile.ZipFile(file_path, 'r') as zip_ref:
-                    # Unzipping is now handled in the progress block
-                    pass
-            else: # Handle raw files that weren't zipped
-                destination_path = unzipped_files_dir / file_path.name
-                if not destination_path.exists():
-                    file_path.rename(destination_path)
-
-        return unzipped_files_dir, base_name
+        return product_dir, base_name
     
     def _unzip_with_progress(self, zip_path: Path, extract_dir: Path, progress: Progress):
         """Unzips a file while updating a rich progress bar."""
@@ -274,10 +251,30 @@ class UavsarDownloader:
                 logging.info(f"Contents of {zip_path.name} already exist. Skipping unzip.")
                 return
 
+            logging.info(f"Extracting {zip_path.name} to {extract_dir}")
             task_id = progress.add_task("unzip", filename=f"Unzipping {zip_path.name}", total=len(infolist))
             for member in infolist:
                 zip_ref.extract(member, extract_dir)
                 progress.update(task_id, advance=1)
+
+    def unzip_files(self, zip_paths: list[Path]):
+        """
+        Unzips a list of provided zip files into new subdirectories named after each zip file.
+        """
+        if not zip_paths:
+            logging.warning("No .zip files provided for unzipping.")
+            return
+
+        with Progress(
+            TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+            BarColumn(bar_width=None),
+            "[progress.percentage]{task.percentage:>3.1f}%",
+        ) as progress:
+            for zip_path in zip_paths:
+                # The zip file is inside the product directory, so we extract to its parent.
+                extract_dir = zip_path.parent / zip_path.stem
+                extract_dir.mkdir(exist_ok=True)
+                self._unzip_with_progress(zip_path, extract_dir, progress)
     @staticmethod
     def _get_encapsulated(str_line, encapsulator):
         """Helper to find text within encapsulators (e.g., parentheses)."""
@@ -614,7 +611,9 @@ class UavsarDownloader:
                     return
         
         # 2. Create the output GeoTIFF
-        out_fp = product_dir / f"{product_dir.name}_stack.tif"
+        # The product_dir is the unzipped data folder (e.g., .../winnip_..._grd/)
+        # We want to save the stack in its parent (the main product folder)
+        out_fp = product_dir.parent / f"{product_dir.parent.name}_stack.tif"
         if out_fp.exists():
             logging.info(f"Output stack file {out_fp.name} already exists. Skipping.")
             return

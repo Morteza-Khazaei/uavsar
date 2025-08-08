@@ -17,6 +17,33 @@ def is_valid_date(date_string):
     except ValueError:
         return "Please enter a date in YYYY-MM-DD format."
 
+def _select_data_directory(campaign_path: Path, file_glob: str, prompt_message: str) -> list[Path]:
+    """Helper to interactively select data subdirectories within a campaign."""
+    potential_dirs = []
+    product_dirs = sorted([d for d in campaign_path.iterdir() if d.is_dir()])
+    for p_dir in product_dirs:
+        # Find subdirectories within the product directory that contain the target files
+        sub_dirs = [sd for sd in p_dir.iterdir() if sd.is_dir() and any(sd.glob(file_glob))]
+        potential_dirs.extend(sub_dirs)
+    
+    potential_dirs = sorted(potential_dirs)
+
+    if not potential_dirs:
+        return []
+
+    choices = [str(d.relative_to(campaign_path)) for d in potential_dirs]
+    selected_dirs_str = questionary.checkbox(
+        prompt_message,
+        choices=choices,
+        validate=lambda result: True if len(result) > 0 else "Please select at least one directory."
+    ).ask()
+
+    if not selected_dirs_str:
+        return []
+    
+    # Reconstruct full paths from the relative string paths
+    return [campaign_path / name for name in selected_dirs_str]
+
 @app.command()
 def search(
     work_dir: Path = typer.Option(
@@ -134,16 +161,16 @@ def search(
 
         for scene_name, products_to_download in selected_products_by_scene.items():
             # Pass the whole list of products for the scene to the download function
-            product_dir, base_name = processor.download_and_unzip_product(products_to_download)
+            product_dir, base_name = processor.download_product(products_to_download)
 
             if not (product_dir and base_name):
-                logging.warning(f"Failed to download all files for product scene {scene_name}. Skipping.")
+                logging.warning(f"Failed to download files for product scene {scene_name}. Skipping.")
                 continue
             
             logging.info(f"Download for {base_name} complete.")
         
         print("\n--- All downloads complete. ---")
-        print("Next steps: Run 'uavsar convert' to process files, then 'uavsar stack' to create multi-band images.")
+        print("Next steps: Run 'uavsar unzip' to extract archives, then 'uavsar convert' and 'uavsar stack'.")
 
     except (KeyboardInterrupt, typer.Exit):
         logging.warning("\nOperation cancelled by user.")
@@ -156,7 +183,7 @@ def convert(
         None,
         "--dir",
         "-d",
-        help="Path to a specific UAVSAR product directory to convert. If not provided, will scan the default work directory.",
+        help="Path to a specific unzipped data directory to convert. If not provided, will scan interactively.",
         exists=True,
         file_okay=False,
         dir_okay=True,
@@ -174,12 +201,11 @@ def convert(
             dirs_to_process.append(product_dir)
             print(f"--- Converting specified directory: {product_dir} ---")
         else:
-            # When no specific directory is given, guide the user through the campaign structure.
-            print(f"--- Scanning for campaigns in base directory: {processor.work_dir} ---")
-            campaign_dirs = sorted([d for d in processor.work_dir.iterdir() if d.is_dir()])
+            print(f"--- Scanning for campaigns in base directory: {processor.base_work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.base_work_dir.iterdir() if d.is_dir()])
 
             if not campaign_dirs:
-                logging.warning(f"No campaign directories found in {processor.work_dir}. Exiting.")
+                logging.warning(f"No campaign directories found in {processor.base_work_dir}. Exiting.")
                 raise typer.Exit()
 
             selected_campaign_name = questionary.select(
@@ -188,25 +214,13 @@ def convert(
             ).ask()
             if not selected_campaign_name: raise typer.Exit()
 
-            campaign_path = processor.work_dir / selected_campaign_name
-            print(f"--- Scanning for products in: {campaign_path.name} ---")
-            potential_dirs = sorted([d for d in campaign_path.iterdir() if d.is_dir() and any(d.glob('*.ann'))])
+            campaign_path = processor.base_work_dir / selected_campaign_name
+            dirs_to_process = _select_data_directory(campaign_path, '*.ann', 'Select data directories to convert:')
 
-            if not potential_dirs:
-                logging.warning(f"No convertible product directories found in {campaign_path.name}. Exiting.")
-                raise typer.Exit()
-
-            selected_dirs_str = questionary.checkbox(
-                "Select product directories to convert:",
-                choices=[d.name for d in potential_dirs],
-                validate=lambda result: True if len(result) > 0 else "Please select at least one directory."
-            ).ask()
-
-            if not selected_dirs_str:
+            if not dirs_to_process:
+                logging.warning(f"No convertible data directories found in {campaign_path.name}. Run 'uavsar unzip' first.")
                 logging.info("No directories selected. Exiting.")
                 raise typer.Exit()
-
-            dirs_to_process = [campaign_path / name for name in selected_dirs_str]
 
         for p_dir in dirs_to_process:
             print(f"\n--- Processing: {p_dir.name} ---")
@@ -241,10 +255,10 @@ def stack(
             dirs_to_process.append(product_dir)
             print(f"--- Stacking bands for specified directory: {product_dir} ---")
         else:
-            print(f"--- Scanning for campaigns in base directory: {processor.work_dir} ---")
-            campaign_dirs = sorted([d for d in processor.work_dir.iterdir() if d.is_dir()])
+            print(f"--- Scanning for campaigns in base directory: {processor.base_work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.base_work_dir.iterdir() if d.is_dir()])
             if not campaign_dirs:
-                logging.warning(f"No campaign directories found in {processor.work_dir}. Exiting.")
+                logging.warning(f"No campaign directories found in {processor.base_work_dir}. Exiting.")
                 raise typer.Exit()
             selected_campaign_name = questionary.select(
                 "Select a campaign to stack products from:",
@@ -252,28 +266,19 @@ def stack(
             ).ask()
             if not selected_campaign_name: raise typer.Exit()
 
-            campaign_path = processor.work_dir / selected_campaign_name
-            print(f"--- Scanning for products in: {campaign_path.name} ---")
-            potential_dirs = sorted([d for d in campaign_path.iterdir() if d.is_dir() and any(d.glob('*.ann'))])
+            campaign_path = processor.base_work_dir / selected_campaign_name
+            dirs_to_process = _select_data_directory(campaign_path, '*.tiff', 'Select data directories to stack bands from:')
 
-            if not potential_dirs:
-                logging.warning(f"No product directories with convertible files found in {campaign_path.name}. Exiting.")
+            if not dirs_to_process:
+                logging.warning(f"No data directories with .tiff files found in {campaign_path.name}. Run 'uavsar convert' first.")
                 raise typer.Exit()
-
-            selected_dirs_str = questionary.checkbox(
-                "Select product directories to stack:",
-                choices=[d.name for d in potential_dirs],
-                validate=lambda result: True if len(result) > 0 else "Please select at least one directory."
-            ).ask()
-            if not selected_dirs_str: raise typer.Exit()
-            dirs_to_process = [campaign_path / name for name in selected_dirs_str]
 
         for p_dir in dirs_to_process:
             print(f"\n--- Stacking: {p_dir.name} ---")
             
             available_tiffs = sorted(list(p_dir.glob('*.tiff')))
             if not available_tiffs:
-                logging.warning(f"No .tiff files found in {p_dir}. Run 'uavsar-dl convert' on this directory first.")
+                logging.warning(f"No .tiff files found in {p_dir}. Run 'uavsar convert' on this directory first.")
                 continue
 
             tiff_choices = [p.name for p in available_tiffs]
@@ -288,3 +293,80 @@ def stack(
         logging.warning("\nOperation cancelled by user.")
     except Exception as e:
         logging.error(f"An unexpected error occurred during stacking: {e}", exc_info=True)
+
+@app.command()
+def unzip(
+    product_dir: Path = typer.Option(
+        None,
+        "--dir",
+        "-d",
+        help="Path to a specific UAVSAR product directory to unzip files in. If not provided, will scan interactively.",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        readable=True,
+        resolve_path=True,
+    )
+):
+    """Unzips downloaded .zip files within a product directory."""
+    try:
+        processor = UavsarDownloader(skip_auth=True)
+
+        zip_files_to_process = []
+        if product_dir:
+            print(f"--- Unzipping files in specified directory: {product_dir} ---")
+            zip_files_to_process.extend(list(product_dir.glob('*.zip')))
+        else:
+            # Interactive selection
+            print(f"--- Scanning for campaigns in base directory: {processor.base_work_dir} ---")
+            campaign_dirs = sorted([d for d in processor.base_work_dir.iterdir() if d.is_dir()])
+            if not campaign_dirs:
+                logging.warning(f"No campaign directories found in {processor.base_work_dir}. Exiting.")
+                raise typer.Exit()
+
+            selected_campaign_name = questionary.select(
+                "Select a campaign to unzip files from:",
+                choices=[d.name for d in campaign_dirs]
+            ).ask()
+            if not selected_campaign_name: raise typer.Exit()
+
+            campaign_path = processor.base_work_dir / selected_campaign_name
+            print(f"--- Scanning for .zip files in campaign: {campaign_path.name} ---")
+            
+            all_zip_files = sorted(list(campaign_path.rglob('*.zip')))
+
+            if not all_zip_files:
+                logging.warning(f"No .zip files found in campaign '{selected_campaign_name}'.")
+                # Check for already unzipped dirs to provide a better message
+                unzipped_dirs = sorted([
+                    d for d in campaign_path.iterdir()
+                    if d.is_dir() and any(d.glob('*.grd')) and not any(d.glob('*.zip'))
+                ])
+                if unzipped_dirs:
+                    logging.info("Tip: Some directories appear to be already unzipped. You can use 'uavsar convert' on them directly.")
+                raise typer.Exit(code=1)
+
+            zip_choices = [
+                {'name': str(p.relative_to(campaign_path)), 'value': p} 
+                for p in all_zip_files
+            ]
+
+            selected_zip_paths = questionary.checkbox(
+                "Select .zip files to unzip:",
+                choices=zip_choices,
+                validate=lambda result: True if len(result) > 0 else "Please select at least one file."
+            ).ask()
+            if not selected_zip_paths: raise typer.Exit()
+            
+            zip_files_to_process = selected_zip_paths
+
+        if not zip_files_to_process:
+            logging.info("No .zip files found to unzip.")
+        else:
+            processor.unzip_files(zip_files_to_process)
+
+        print("\n--- Unzipping complete. ---")
+    except (KeyboardInterrupt, typer.Exit):
+        logging.warning("\nOperation cancelled by user.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during unzipping: {e}", exc_info=True)

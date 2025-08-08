@@ -53,11 +53,11 @@ After you enter them, the tool will create a special file called `.netrc` in you
 
 ## Usage: A Step-by-Step Workflow
 
-The toolkit provides three main commands: `uavsar search`, `uavsar convert`, and `uavsar stack`. Here is a typical workflow:
+The toolkit provides four main commands that guide you through the data processing workflow: `search`, `unzip`, `convert`, and `stack`.
 
 ### Step 1: Find and Download Data with `search`
 
-Use this command to find and download data from the official archive.
+Use this command to find and download data from the official ASF archive.
 
 ```bash
 uavsar search
@@ -69,13 +69,21 @@ This will start an interactive session where you will be asked to:
 3.  Enter a start and end date for your search.
 4.  Select the specific data files you want to download from a list of results.
 
-The tool will then download and unzip the files for you.
+The tool will then download the selected files (including `.zip` archives) into campaign- and product-specific folders.
 
-### Step 2: Convert Raw Files to GeoTIFFs with `convert`
+### Step 2: Unzip Downloaded Archives with `unzip`
+
+After downloading, use this command to extract any `.zip` files.
+
+```bash
+uavsar unzip
+```
+
+The tool will guide you in selecting which downloaded products to unzip.
+
+### Step 3: Convert Raw Files to GeoTIFFs with `convert`
 
 The downloaded files are in a raw binary format. To view them as images, you need to convert them to GeoTIFFs. This command does that for you.
-
-Run the command, and it will show you a list of all the product folders you've downloaded. Select the ones you want to process.
 
 ```bash
 uavsar convert
